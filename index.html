@@ -1,0 +1,1957 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<title>NORMALIZE / MOTHERBOARD</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+
+<style>
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+canvas {
+    display: block;
+}
+
+#interface {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: rgba(20,20,20,0.5);
+    text-transform: uppercase;
+}
+
+#title {
+    position: absolute;
+    top: 18px;
+    left: 22px;
+}
+
+#status {
+    position: absolute;
+    top: 18px;
+    right: 22px;
+}
+
+#bottom {
+    position: absolute;
+    bottom: 18px;
+    left: 22px;
+    line-height: 1.7em;
+}
+</style>
+</head>
+
+<body>
+
+<div id="interface">
+    <div id="title">
+        NORMALIZE / HUMAN GENERATION BOARD
+    </div>
+
+    <div id="status">
+        PROCESS ACTIVE
+    </div>
+
+    <div id="bottom">
+        400 HUMAN UNITS<br>
+        20 × 20 GENERATIVE ARRAY
+    </div>
+</div>
+
+<script>
+
+
+// =========================================================
+// ARCHIVE
+// =========================================================
+
+let archive = {};
+
+const SKIN_IDS  = range(1, 18);
+const BROW_IDS  = range(19, 38);
+const EYE_IDS   = range(39, 61);
+const NOSE_IDS  = range(62, 76);
+const MOUTH_IDS = range(77, 99);
+
+
+// =========================================================
+// GRID
+// =========================================================
+
+const GRID = 20;
+const TOTAL = GRID * GRID;
+
+let faces = [];
+
+
+// =========================================================
+// LAYOUT
+// =========================================================
+
+let boardSize;
+let boardX;
+let boardY;
+let cellSize;
+
+const DRAW_SCALE = 1.075;
+
+
+// =========================================================
+// PERFORMANCE
+// =========================================================
+
+const FACE_BUFFER_SIZE = 56;
+
+
+// =========================================================
+// MACRO VALUES
+// =========================================================
+
+let macroValues = [];
+
+
+// =========================================================
+// EXPRESSION
+// =========================================================
+
+let expression = {
+
+    leftBrowInner: 0,
+    leftBrowOuter: 0,
+
+    rightBrowInner: 0,
+    rightBrowOuter: 0,
+
+    leftEyeOpen: 1,
+    rightEyeOpen: 1,
+
+    pupilX: 0,
+
+    mouthCornerLeft: 0,
+    mouthCornerRight: 0,
+
+    mouthOpen: 0,
+    mouthRound: 0,
+    mouthWidth: 1,
+
+    noseDrop: 0,
+    noseStretch: 1
+
+};
+
+
+let targetExpression =
+    JSON.parse(
+        JSON.stringify(
+            expression
+        )
+    );
+
+
+const EXPRESSION_LERP = 0.055;
+
+let nextExpressionChange = 0;
+
+const MIN_EXPRESSION_INTERVAL = 1700;
+const MAX_EXPRESSION_INTERVAL = 3400;
+
+
+// =========================================================
+// MUTATION
+// =========================================================
+
+let nextChange = 0;
+
+const MIN_CHANGE_AMOUNT = 10;
+const MAX_CHANGE_AMOUNT = 18;
+
+const MIN_CHANGE_INTERVAL = 140;
+const MAX_CHANGE_INTERVAL = 230;
+
+
+// =========================================================
+// PRELOAD
+// =========================================================
+
+function preload() {
+
+    for (let i = 1; i <= 99; i++) {
+
+        let id =
+            String(i).padStart(3, "0");
+
+        archive[i] =
+            loadImage(
+                "archive/" +
+                id +
+                ".png"
+            );
+    }
+}
+
+
+// =========================================================
+// SETUP
+// =========================================================
+
+function setup() {
+
+    createCanvas(
+        windowWidth,
+        windowHeight
+    );
+
+    pixelDensity(1);
+
+    frameRate(20);
+
+    calculateBoard();
+
+    generatePopulation();
+
+    chooseNewExpression();
+
+    generateMacroValues();
+
+    nextChange =
+        millis() +
+        random(
+            MIN_CHANGE_INTERVAL,
+            MAX_CHANGE_INTERVAL
+        );
+
+    nextExpressionChange =
+        millis() +
+        random(
+            MIN_EXPRESSION_INTERVAL,
+            MAX_EXPRESSION_INTERVAL
+        );
+}
+
+
+// =========================================================
+// DRAW
+// =========================================================
+
+function draw() {
+
+    background(255);
+
+    updateExpression();
+
+    generateMacroValues();
+
+    drawPopulation();
+
+    updatePopulation();
+}
+
+
+// =========================================================
+// POPULATION
+// =========================================================
+
+function generatePopulation() {
+
+    faces = [];
+
+    for (let i = 0; i < TOTAL; i++) {
+        faces.push(createFaceUnit());
+    }
+}
+
+
+// =========================================================
+// SMALL FACE
+// =========================================================
+
+function createFaceUnit() {
+
+    let data =
+        createFaceData();
+
+    let buffer =
+        renderFaceBuffer(data);
+
+    return {
+        data: data,
+        buffer: buffer
+    };
+}
+
+
+function createFaceData() {
+
+    return {
+
+        skin: random(SKIN_IDS),
+
+        leftEye: random(EYE_IDS),
+        rightEye: random(EYE_IDS),
+
+        leftBrow: random(BROW_IDS),
+        rightBrow: random(BROW_IDS),
+
+        nose: random(NOSE_IDS),
+        mouth: random(MOUTH_IDS),
+
+        eyeY:
+            random(
+                0.37,
+                0.44
+            ),
+
+        eyeDistance:
+            random(
+                0.18,
+                0.25
+            ),
+
+        eyeScale:
+            random(
+                0.86,
+                1.16
+            ),
+
+        eyeRotationL:
+            random(
+                -0.15,
+                0.15
+            ),
+
+        eyeRotationR:
+            random(
+                -0.15,
+                0.15
+            ),
+
+        browY:
+            random(
+                0.25,
+                0.31
+            ),
+
+        browRotationL:
+            random(
+                -0.22,
+                0.22
+            ),
+
+        browRotationR:
+            random(
+                -0.22,
+                0.22
+            ),
+
+        noseY:
+            random(
+                0.50,
+                0.57
+            ),
+
+        noseScale:
+            random(
+                0.86,
+                1.13
+            ),
+
+        mouthY:
+            random(
+                0.70,
+                0.76
+            ),
+
+        mouthScale:
+            random(
+                0.82,
+                1.10
+            ),
+
+        mouthRotation:
+            random(
+                -0.08,
+                0.08
+            ),
+
+        rotation:
+            random(
+                -0.03,
+                0.03
+            )
+    };
+}
+
+
+// =========================================================
+// SMALL FACE BUFFER
+// =========================================================
+
+function renderFaceBuffer(f) {
+
+    let g =
+        createGraphics(
+            FACE_BUFFER_SIZE,
+            FACE_BUFFER_SIZE
+        );
+
+    g.pixelDensity(1);
+    g.clear();
+
+    g.push();
+
+    g.translate(
+        FACE_BUFFER_SIZE / 2,
+        FACE_BUFFER_SIZE / 2
+    );
+
+    g.rotate(
+        f.rotation
+    );
+
+    let faceW =
+        FACE_BUFFER_SIZE * 0.84;
+
+    let faceH =
+        FACE_BUFFER_SIZE * 0.96;
+
+
+    // SKIN
+    graphicsPart(
+        g,
+        archive[f.skin],
+        0,
+        0,
+        faceW,
+        faceH,
+        0
+    );
+
+
+    // EYES
+    let eyeX =
+        faceW *
+        f.eyeDistance;
+
+    let eyeY =
+        -faceH / 2 +
+        faceH *
+        f.eyeY;
+
+
+    graphicsPart(
+        g,
+        archive[f.leftEye],
+        -eyeX,
+        eyeY,
+        faceW * 0.30 * f.eyeScale,
+        faceH * 0.14 * f.eyeScale,
+        f.eyeRotationL
+    );
+
+
+    graphicsPart(
+        g,
+        archive[f.rightEye],
+        eyeX,
+        eyeY,
+        faceW * 0.30 * f.eyeScale,
+        faceH * 0.14 * f.eyeScale,
+        f.eyeRotationR
+    );
+
+
+    // BROWS
+    let browY =
+        -faceH / 2 +
+        faceH *
+        f.browY;
+
+
+    graphicsPart(
+        g,
+        archive[f.leftBrow],
+        -eyeX,
+        browY,
+        faceW * 0.32,
+        faceH * 0.09,
+        f.browRotationL
+    );
+
+
+    graphicsPart(
+        g,
+        archive[f.rightBrow],
+        eyeX,
+        browY,
+        faceW * 0.32,
+        faceH * 0.09,
+        f.browRotationR
+    );
+
+
+    // NOSE
+    let noseY =
+        -faceH / 2 +
+        faceH *
+        f.noseY;
+
+
+    graphicsPart(
+        g,
+        archive[f.nose],
+        0,
+        noseY,
+        faceW * 0.25 * f.noseScale,
+        faceH * 0.28 * f.noseScale,
+        0
+    );
+
+
+    // MOUTH
+    let mouthY =
+        -faceH / 2 +
+        faceH *
+        f.mouthY;
+
+
+    graphicsPart(
+        g,
+        archive[f.mouth],
+        0,
+        mouthY,
+        faceW * 0.40 * f.mouthScale,
+        faceH * 0.14 * f.mouthScale,
+        f.mouthRotation
+    );
+
+
+    g.pop();
+
+    return g;
+}
+
+
+function graphicsPart(
+    g,
+    img,
+    x,
+    y,
+    w,
+    h,
+    rotation
+) {
+
+    if (!img) return;
+
+    g.push();
+
+    g.translate(x, y);
+    g.rotate(rotation);
+
+    g.imageMode(CENTER);
+
+    g.image(
+        img,
+        0,
+        0,
+        w,
+        h
+    );
+
+    g.pop();
+}
+
+
+// =========================================================
+// DRAW POPULATION
+// =========================================================
+
+function drawPopulation() {
+
+    imageMode(CENTER);
+    rectMode(CORNER);
+    noStroke();
+
+    for (let i = 0; i < TOTAL; i++) {
+
+        let gx =
+            i %
+            GRID;
+
+        let gy =
+            floor(
+                i /
+                GRID
+            );
+
+        let x =
+            boardX +
+            gx *
+            cellSize;
+
+        let y =
+            boardY +
+            gy *
+            cellSize;
+
+        let cx =
+            x +
+            cellSize / 2;
+
+        let cy =
+            y +
+            cellSize / 2;
+
+        let value =
+            macroValues[i];
+
+
+        let brightnessLevel =
+            map(
+                value,
+                0,
+                1,
+                8,
+                255
+            );
+
+
+        tint(
+            brightnessLevel
+        );
+
+
+        image(
+            faces[i].buffer,
+            cx,
+            cy,
+            cellSize * DRAW_SCALE,
+            cellSize * DRAW_SCALE
+        );
+
+
+        noTint();
+
+
+        let darkness =
+            map(
+                value,
+                0,
+                1,
+                210,
+                0
+            );
+
+
+        fill(
+            0,
+            darkness
+        );
+
+
+        rect(
+            x,
+            y,
+            cellSize,
+            cellSize
+        );
+
+
+        if (
+            value >
+            0.74
+        ) {
+
+            let whiteAlpha =
+                map(
+                    value,
+                    0.74,
+                    1,
+                    0,
+                    62
+                );
+
+
+            fill(
+                255,
+                whiteAlpha
+            );
+
+
+            rect(
+                x,
+                y,
+                cellSize,
+                cellSize
+            );
+        }
+    }
+
+    noTint();
+}
+
+
+// =========================================================
+// EXPRESSION PRESETS
+// =========================================================
+
+function chooseNewExpression() {
+
+    let mode =
+        floor(
+            random(7)
+        );
+
+
+    if (mode === 0) {
+
+        // ---------------------------------------------
+        // CENTER BROWS DOWN / OUTER BROWS UP
+        // tense / angry-like geometry
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = 0.070;
+        targetExpression.leftBrowOuter = -0.045;
+
+        targetExpression.rightBrowInner = 0.070;
+        targetExpression.rightBrowOuter = -0.045;
+
+        targetExpression.leftEyeOpen = 0.72;
+        targetExpression.rightEyeOpen = 0.72;
+
+        targetExpression.pupilX = 0;
+
+        targetExpression.mouthCornerLeft = 0.045;
+        targetExpression.mouthCornerRight = 0.045;
+
+        targetExpression.mouthOpen = 0.01;
+        targetExpression.mouthRound = 0;
+        targetExpression.mouthWidth = 0.95;
+
+    }
+
+
+    else if (mode === 1) {
+
+        // ---------------------------------------------
+        // CENTER BROWS UP / OUTER LOWER
+        // worried geometry
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = -0.075;
+        targetExpression.leftBrowOuter = 0.030;
+
+        targetExpression.rightBrowInner = -0.075;
+        targetExpression.rightBrowOuter = 0.030;
+
+        targetExpression.leftEyeOpen = 1.25;
+        targetExpression.rightEyeOpen = 1.25;
+
+        targetExpression.pupilX =
+            random(-0.025, 0.025);
+
+        targetExpression.mouthCornerLeft = 0.050;
+        targetExpression.mouthCornerRight = 0.050;
+
+        targetExpression.mouthOpen = 0.015;
+        targetExpression.mouthRound = 0;
+        targetExpression.mouthWidth = 0.90;
+
+    }
+
+
+    else if (mode === 2) {
+
+        // ---------------------------------------------
+        // ONE BROW RAISED
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = -0.085;
+        targetExpression.leftBrowOuter = -0.065;
+
+        targetExpression.rightBrowInner = 0.020;
+        targetExpression.rightBrowOuter = 0.015;
+
+        targetExpression.leftEyeOpen = 1.15;
+        targetExpression.rightEyeOpen = 0.82;
+
+        targetExpression.pupilX =
+            random(-0.04, 0.04);
+
+        targetExpression.mouthCornerLeft = 0.010;
+        targetExpression.mouthCornerRight = -0.025;
+
+        targetExpression.mouthOpen = 0;
+        targetExpression.mouthRound = 0;
+        targetExpression.mouthWidth = 0.95;
+
+    }
+
+
+    else if (mode === 3) {
+
+        // ---------------------------------------------
+        // SMILE
+        // corners UP
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = -0.015;
+        targetExpression.leftBrowOuter = -0.010;
+
+        targetExpression.rightBrowInner = -0.015;
+        targetExpression.rightBrowOuter = -0.010;
+
+        targetExpression.leftEyeOpen = 0.72;
+        targetExpression.rightEyeOpen = 0.72;
+
+        targetExpression.pupilX = 0;
+
+        targetExpression.mouthCornerLeft = -0.070;
+        targetExpression.mouthCornerRight = -0.070;
+
+        targetExpression.mouthOpen = 0.020;
+        targetExpression.mouthRound = 0;
+        targetExpression.mouthWidth = 1.20;
+
+    }
+
+
+    else if (mode === 4) {
+
+        // ---------------------------------------------
+        // FROWN
+        // corners DOWN
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = -0.050;
+        targetExpression.leftBrowOuter = 0.015;
+
+        targetExpression.rightBrowInner = -0.050;
+        targetExpression.rightBrowOuter = 0.015;
+
+        targetExpression.leftEyeOpen = 0.90;
+        targetExpression.rightEyeOpen = 0.90;
+
+        targetExpression.pupilX = 0;
+
+        targetExpression.mouthCornerLeft = 0.075;
+        targetExpression.mouthCornerRight = 0.075;
+
+        targetExpression.mouthOpen = 0.005;
+        targetExpression.mouthRound = 0;
+        targetExpression.mouthWidth = 0.95;
+
+    }
+
+
+    else if (mode === 5) {
+
+        // ---------------------------------------------
+        // LARGE O-SHAPED MOUTH
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = -0.055;
+        targetExpression.leftBrowOuter = -0.035;
+
+        targetExpression.rightBrowInner = -0.055;
+        targetExpression.rightBrowOuter = -0.035;
+
+        targetExpression.leftEyeOpen = 1.40;
+        targetExpression.rightEyeOpen = 1.40;
+
+        targetExpression.pupilX =
+            random(-0.020, 0.020);
+
+        targetExpression.mouthCornerLeft = 0;
+        targetExpression.mouthCornerRight = 0;
+
+        targetExpression.mouthOpen = 0.115;
+        targetExpression.mouthRound = 1;
+        targetExpression.mouthWidth = 0.60;
+
+    }
+
+
+    else {
+
+        // ---------------------------------------------
+        // EYES CLOSED
+        // ---------------------------------------------
+
+        targetExpression.leftBrowInner = 0.005;
+        targetExpression.leftBrowOuter = -0.010;
+
+        targetExpression.rightBrowInner = 0.005;
+        targetExpression.rightBrowOuter = -0.010;
+
+        targetExpression.leftEyeOpen = 0.12;
+        targetExpression.rightEyeOpen = 0.12;
+
+        targetExpression.pupilX = 0;
+
+        targetExpression.mouthCornerLeft = -0.015;
+        targetExpression.mouthCornerRight = -0.015;
+
+        targetExpression.mouthOpen = 0;
+        targetExpression.mouthRound = 0;
+        targetExpression.mouthWidth = 1.00;
+
+    }
+
+
+    // nose reacts to mouth opening
+
+    targetExpression.noseDrop =
+        targetExpression.mouthOpen *
+        0.34;
+
+
+    targetExpression.noseStretch =
+        1 +
+        targetExpression.mouthOpen *
+        1.4;
+}
+
+
+// =========================================================
+// SMOOTH EXPRESSION
+// =========================================================
+
+function updateExpression() {
+
+    let now =
+        millis();
+
+
+    if (
+        now >
+        nextExpressionChange
+    ) {
+
+        chooseNewExpression();
+
+        nextExpressionChange =
+            now +
+            random(
+                MIN_EXPRESSION_INTERVAL,
+                MAX_EXPRESSION_INTERVAL
+            );
+    }
+
+
+    for (let key in expression) {
+
+        expression[key] =
+            lerp(
+                expression[key],
+                targetExpression[key],
+                EXPRESSION_LERP
+            );
+    }
+}
+
+
+// =========================================================
+// MACRO GRID
+// =========================================================
+
+function generateMacroValues() {
+
+    macroValues = [];
+
+
+    for (
+        let gy = 0;
+        gy < GRID;
+        gy++
+    ) {
+
+
+        for (
+            let gx = 0;
+            gx < GRID;
+            gx++
+        ) {
+
+
+            let x =
+                map(
+                    gx + 0.5,
+                    0,
+                    GRID,
+                    -0.43,
+                    0.43
+                );
+
+
+            let y =
+                map(
+                    gy + 0.5,
+                    0,
+                    GRID,
+                    -0.40,
+                    0.54
+                );
+
+
+            macroValues.push(
+                macroFaceValue(
+                    x,
+                    y
+                )
+            );
+        }
+    }
+}
+
+
+// =========================================================
+// MACRO FACE
+// =========================================================
+
+function macroFaceValue(
+    x,
+    y
+) {
+
+    let v =
+        0.78;
+
+
+    // =====================================================
+    // SUBTLE FACIAL FIELD
+    // =====================================================
+
+    v -=
+        gaussian(
+            x,
+            y,
+            0,
+            0.05,
+            0.43,
+            0.55
+        )
+        *
+        0.04;
+
+
+
+    // =====================================================
+    // BROWS
+    // =====================================================
+
+    let leftInnerY =
+        -0.315 +
+        expression.leftBrowInner;
+
+    let leftOuterY =
+        -0.325 +
+        expression.leftBrowOuter;
+
+
+    let rightInnerY =
+        -0.315 +
+        expression.rightBrowInner;
+
+    let rightOuterY =
+        -0.325 +
+        expression.rightBrowOuter;
+
+
+    // left outer brow
+    v -=
+        gaussian(
+            x,
+            y,
+            -0.31,
+            leftOuterY,
+            0.10,
+            0.028
+        )
+        *
+        0.36;
+
+
+    // left center
+    v -=
+        gaussian(
+            x,
+            y,
+            -0.22,
+            (
+                leftOuterY +
+                leftInnerY
+            ) /
+            2,
+            0.10,
+            0.028
+        )
+        *
+        0.44;
+
+
+    // left inner
+    v -=
+        gaussian(
+            x,
+            y,
+            -0.12,
+            leftInnerY,
+            0.075,
+            0.027
+        )
+        *
+        0.52;
+
+
+    // right inner
+    v -=
+        gaussian(
+            x,
+            y,
+            0.12,
+            rightInnerY,
+            0.075,
+            0.027
+        )
+        *
+        0.52;
+
+
+    // right center
+    v -=
+        gaussian(
+            x,
+            y,
+            0.22,
+            (
+                rightOuterY +
+                rightInnerY
+            ) /
+            2,
+            0.10,
+            0.028
+        )
+        *
+        0.44;
+
+
+    // right outer
+    v -=
+        gaussian(
+            x,
+            y,
+            0.31,
+            rightOuterY,
+            0.10,
+            0.028
+        )
+        *
+        0.36;
+
+
+
+    // =====================================================
+    // BROW / EYE GAP
+    // =====================================================
+
+    v +=
+        gaussian(
+            x,
+            y,
+            -0.22,
+            -0.235,
+            0.14,
+            0.032
+        )
+        *
+        0.14;
+
+
+    v +=
+        gaussian(
+            x,
+            y,
+            0.22,
+            -0.235,
+            0.14,
+            0.032
+        )
+        *
+        0.14;
+
+
+
+    // =====================================================
+    // EYES
+    // =====================================================
+
+    drawMacroEye(
+        -0.22,
+        expression.leftEyeOpen
+    );
+
+
+    drawMacroEye(
+        0.22,
+        expression.rightEyeOpen
+    );
+
+
+    function drawMacroEye(
+        eyeX,
+        openness
+    ) {
+
+        let h =
+            0.040 *
+            openness;
+
+
+        // socket
+        v -=
+            gaussian(
+                x,
+                y,
+                eyeX,
+                -0.135,
+                0.175,
+                max(
+                    0.025,
+                    h +
+                    0.025
+                )
+            )
+            *
+            0.27;
+
+
+        if (
+            openness >
+            0.20
+        ) {
+
+            // eye white
+            v +=
+                gaussian(
+                    x,
+                    y,
+                    eyeX,
+                    -0.132,
+                    0.135,
+                    max(
+                        0.012,
+                        h
+                    )
+                )
+                *
+                0.40;
+
+
+            // iris
+            v -=
+                gaussian(
+                    x,
+                    y,
+                    eyeX +
+                    expression.pupilX,
+                    -0.132,
+                    0.046,
+                    0.042 *
+                    min(
+                        openness,
+                        1
+                    )
+                )
+                *
+                0.51;
+
+
+            // pupil
+            v -=
+                gaussian(
+                    x,
+                    y,
+                    eyeX +
+                    expression.pupilX,
+                    -0.132,
+                    0.019,
+                    0.020 *
+                    min(
+                        openness,
+                        1
+                    )
+                )
+                *
+                0.39;
+
+        }
+
+
+        // upper lid
+        v -=
+            gaussian(
+                x,
+                y,
+                eyeX,
+                -0.132 -
+                h -
+                0.012,
+                0.145,
+                0.014
+            )
+            *
+            0.31;
+
+
+        // closed-eye line
+        if (
+            openness <
+            0.30
+        ) {
+
+            v -=
+                gaussian(
+                    x,
+                    y,
+                    eyeX,
+                    -0.132,
+                    0.145,
+                    0.012
+                )
+                *
+                0.44;
+
+        }
+    }
+
+
+
+    // =====================================================
+    // BETWEEN EYES
+    // =====================================================
+
+    v +=
+        gaussian(
+            x,
+            y,
+            0,
+            -0.145,
+            0.073,
+            0.080
+        )
+        *
+        0.34;
+
+
+
+    // =====================================================
+    // NOSE
+    // =====================================================
+
+    let noseDrop =
+        expression.noseDrop;
+
+
+    let noseStretch =
+        expression.noseStretch;
+
+
+    // root
+    v +=
+        gaussian(
+            x,
+            y,
+            0,
+            -0.065 +
+            noseDrop * 0.25,
+            0.045,
+            0.085 *
+            noseStretch
+        )
+        *
+        0.20;
+
+
+    // bridge highlight
+    v +=
+        gaussian(
+            x,
+            y,
+            -0.006,
+            0.045 +
+            noseDrop * 0.45,
+            0.035,
+            0.17 *
+            noseStretch
+        )
+        *
+        0.18;
+
+
+    // side shadow
+    v -=
+        gaussian(
+            x,
+            y,
+            -0.055,
+            0.055 +
+            noseDrop * 0.50,
+            0.035,
+            0.16 *
+            noseStretch
+        )
+        *
+        0.14;
+
+
+    v -=
+        gaussian(
+            x,
+            y,
+            0.055,
+            0.055 +
+            noseDrop * 0.50,
+            0.035,
+            0.16 *
+            noseStretch
+        )
+        *
+        0.18;
+
+
+    // lower nose
+    v -=
+        gaussian(
+            x,
+            y,
+            0,
+            0.215 +
+            noseDrop,
+            0.095,
+            0.060
+        )
+        *
+        0.28;
+
+
+    // tip
+    v +=
+        gaussian(
+            x,
+            y,
+            0,
+            0.182 +
+            noseDrop,
+            0.040,
+            0.027
+        )
+        *
+        0.13;
+
+
+    // nostrils
+    v -=
+        gaussian(
+            x,
+            y,
+            -0.058,
+            0.247 +
+            noseDrop,
+            0.027,
+            0.017
+        )
+        *
+        0.43;
+
+
+    v -=
+        gaussian(
+            x,
+            y,
+            0.058,
+            0.247 +
+            noseDrop,
+            0.027,
+            0.017
+        )
+        *
+        0.43;
+
+
+
+    // =====================================================
+    // PHILTRUM
+    // =====================================================
+
+    v -=
+        gaussian(
+            x,
+            y,
+            0,
+            0.333 +
+            noseDrop *
+            0.40,
+            0.037,
+            0.055
+        )
+        *
+        0.18;
+
+
+
+    // =====================================================
+    // MOUTH
+    // =====================================================
+
+    let baseMouthY =
+        0.438;
+
+
+    let leftCornerY =
+        baseMouthY +
+        expression.mouthCornerLeft;
+
+
+    let rightCornerY =
+        baseMouthY +
+        expression.mouthCornerRight;
+
+
+    let halfWidth =
+        0.145 *
+        expression.mouthWidth;
+
+
+    // =====================================================
+    // O-SHAPE
+    // =====================================================
+
+    if (
+        expression.mouthRound >
+        0.5
+    ) {
+
+
+        let openAmount =
+            max(
+                0.035,
+                expression.mouthOpen
+            );
+
+
+        // dark cavity
+        v -=
+            gaussian(
+                x,
+                y,
+                0,
+                baseMouthY,
+                halfWidth *
+                0.55,
+                0.035 +
+                openAmount *
+                0.70
+            )
+            *
+            0.72;
+
+
+        // outer lip
+        v -=
+            gaussian(
+                x,
+                y,
+                0,
+                baseMouthY,
+                halfWidth *
+                0.82,
+                0.055 +
+                openAmount *
+                0.82
+            )
+            *
+            0.22;
+
+
+        // inner highlight
+        v +=
+            gaussian(
+                x,
+                y,
+                0,
+                baseMouthY +
+                openAmount *
+                0.30,
+                halfWidth *
+                0.35,
+                openAmount *
+                0.20
+            )
+            *
+            0.08;
+
+    }
+
+
+    // =====================================================
+    // NORMAL / CURVED MOUTH
+    // =====================================================
+
+    else {
+
+
+        // upper left lip
+        v -=
+            gaussian(
+                x,
+                y,
+                -halfWidth *
+                0.45,
+                lerp(
+                    baseMouthY,
+                    leftCornerY,
+                    0.55
+                )
+                -
+                0.018,
+                halfWidth *
+                0.55,
+                0.027
+            )
+            *
+            0.32;
+
+
+        // upper right lip
+        v -=
+            gaussian(
+                x,
+                y,
+                halfWidth *
+                0.45,
+                lerp(
+                    baseMouthY,
+                    rightCornerY,
+                    0.55
+                )
+                -
+                0.018,
+                halfWidth *
+                0.55,
+                0.027
+            )
+            *
+            0.32;
+
+
+        // center slit
+        v -=
+            gaussian(
+                x,
+                y,
+                0,
+                baseMouthY +
+                expression.mouthOpen *
+                0.30,
+                halfWidth,
+                0.010 +
+                expression.mouthOpen *
+                0.35
+            )
+            *
+            0.60;
+
+
+        // corners
+        v -=
+            gaussian(
+                x,
+                y,
+                -halfWidth,
+                leftCornerY,
+                0.023,
+                0.020
+            )
+            *
+            0.32;
+
+
+        v -=
+            gaussian(
+                x,
+                y,
+                halfWidth,
+                rightCornerY,
+                0.023,
+                0.020
+            )
+            *
+            0.32;
+
+
+        // lower lip
+        v +=
+            gaussian(
+                x,
+                y,
+                0,
+                baseMouthY +
+                0.032 +
+                expression.mouthOpen,
+                halfWidth *
+                0.82,
+                0.026
+            )
+            *
+            0.19;
+
+
+        // open mouth cavity
+        if (
+            expression.mouthOpen >
+            0.018
+        ) {
+
+            v -=
+                gaussian(
+                    x,
+                    y,
+                    0,
+                    baseMouthY +
+                    expression.mouthOpen *
+                    0.55,
+                    halfWidth *
+                    0.72,
+                    expression.mouthOpen *
+                    0.60
+                )
+                *
+                0.36;
+
+        }
+    }
+
+
+
+    // =====================================================
+    // FINAL CONTRAST
+    // =====================================================
+
+    v =
+        (
+            v -
+            0.5
+        )
+        *
+        1.62
+        +
+        0.5;
+
+
+    return constrain(
+        v,
+        0,
+        1
+    );
+}
+
+
+// =========================================================
+// GAUSSIAN
+// =========================================================
+
+function gaussian(
+    x,
+    y,
+    cx,
+    cy,
+    sx,
+    sy
+) {
+
+    let dx =
+        (x - cx) /
+        sx;
+
+    let dy =
+        (y - cy) /
+        sy;
+
+
+    return exp(
+        -0.5 *
+        (
+            dx * dx +
+            dy * dy
+        )
+    );
+}
+
+
+// =========================================================
+// SMALL FACE MUTATION
+// =========================================================
+
+function updatePopulation() {
+
+    let now =
+        millis();
+
+
+    if (
+        now <
+        nextChange
+    ) {
+
+        return;
+    }
+
+
+    let amount =
+        floor(
+            random(
+                MIN_CHANGE_AMOUNT,
+                MAX_CHANGE_AMOUNT + 1
+            )
+        );
+
+
+    let indices = [];
+
+
+    for (
+        let i = 0;
+        i < TOTAL;
+        i++
+    ) {
+
+        indices.push(i);
+    }
+
+
+    shuffle(
+        indices,
+        true
+    );
+
+
+    for (
+        let i = 0;
+        i < amount;
+        i++
+    ) {
+
+        let index =
+            indices[i];
+
+
+        if (
+            faces[index] &&
+            faces[index].buffer
+        ) {
+
+            faces[index]
+                .buffer
+                .remove();
+        }
+
+
+        faces[index] =
+            createFaceUnit();
+    }
+
+
+    nextChange =
+        now +
+        random(
+            MIN_CHANGE_INTERVAL,
+            MAX_CHANGE_INTERVAL
+        );
+}
+
+
+// =========================================================
+// LAYOUT
+// =========================================================
+
+function calculateBoard() {
+
+    boardSize =
+        min(
+            width * 0.89,
+            height * 0.92
+        );
+
+
+    cellSize =
+        boardSize /
+        GRID;
+
+
+    boardX =
+        width / 2 -
+        boardSize / 2;
+
+
+    boardY =
+        height / 2 -
+        boardSize / 2;
+}
+
+
+// =========================================================
+// RANGE
+// =========================================================
+
+function range(start, end) {
+
+    let result = [];
+
+    for (
+        let i = start;
+        i <= end;
+        i++
+    ) {
+
+        result.push(i);
+    }
+
+    return result;
+}
+
+
+// =========================================================
+// RESIZE
+// =========================================================
+
+function windowResized() {
+
+    resizeCanvas(
+        windowWidth,
+        windowHeight
+    );
+
+    calculateBoard();
+}
+
+
+</script>
+
+</body>
+
+</html>
